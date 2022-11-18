@@ -1,18 +1,24 @@
+library(remotes)
+library(rsconnect) # for rsconnect::deployApp()
 #remotes::install_github("GIScience/openrouteservice-r")
-library(bslib)
-library(shiny)
-library(openrouteservice)
-library(opencage)
-#ors_api_key(key = Sys.getenv("ors_key"))
+
+library(openrouteservice) # needs ORS_API_KEY in .Renviron
+library(opencage) # needs OPENCAGE_KEY in .Renviron
 library(osmdata)
-library(mapview)
-library(tidyverse)
 library(sf)
 library(leaflet)
-library(htmlwidgets)
+library(mapview)
+library(dplyr)
+library(tidyr)
+library(purrr)
+#library(htmlwidgets)
 library(htmltools)
+library(bslib)
+library(shiny)
+
 st_x = function(x) st_coordinates(x)[,1]
 st_y = function(x) st_coordinates(x)[,2]
+
 set.seed(1234)
 
 basemaps <- c("CartoDB.DarkMatter","CartoDB.Positron",  "OpenStreetMap",      "Esri.WorldImagery" ,"OpenTopoMap")  
@@ -36,7 +42,6 @@ IconSet <- awesomeIconList(
   nobeer = makeAwesomeIcon(icon= 'beer', markerColor = 'red', iconColor = 'white', library = "fa"),
   start = makeAwesomeIcon(icon= 'flag-o ',  iconColor = 'white', library = "fa"),
   end = makeAwesomeIcon(icon= 'bed',  iconColor = 'white', library = "fa")
-  
 )
 
 ui <- 
@@ -95,7 +100,7 @@ server <- function(input, output) {
                      how_name = "driving"
                    }
                    n_bars <- input$input_n_bars
-                   incProgress(amount = 2/15, message= "Contacting opencage to geocode start and end")        
+                   incProgress(amount = 2/15, message= "Contacting OPENCAGE API to geocode start and end")        
                    opencage_return_start <- opencage::oc_forward(placename = input$input_start, 
                                                              limit = 1 , # just the best result
                    )
@@ -119,22 +124,24 @@ server <- function(input, output) {
                    mespoints$y <- st_y(mespoints)
                    
                    if (as.numeric(st_distance(  mespoints %>% filter(name== "start"),  mespoints %>% filter(name== "end"))) < 100000){
-                     incProgress(amount = 3/15, message= "Contacting osmdata for pubs and bars locations")        
+                     incProgress(amount = 3/15, message= "Contacting OSMDATA API for pubs and bars locations")        
                      
+                     cat(file=stderr(), paste0("Getting pubs \n"))
                      pubs <- opq(bbox = c(min(start_lon, end_lon)-input$input_boundingbox_buffer, min(start_lat, end_lat)-input$input_boundingbox_buffer, max(start_lon, end_lon)+input$input_boundingbox_buffer, max(start_lat, end_lat)+input$input_boundingbox_buffer))%>%
                        add_osm_feature(key = "amenity", value = "pub")  %>%
                        osmdata_sf(.) %>% 
                        .$osm_points  %>% 
                        select(name, osm_id)
                      
-                     
+                     cat(file=stderr(), paste0("Getting bars \n"))
                      bars <- opq(bbox = c(min(start_lon, end_lon)-input$input_boundingbox_buffer, min(start_lat, end_lat)-input$input_boundingbox_buffer, max(start_lon, end_lon)+input$input_boundingbox_buffer, max(start_lat, end_lat)+input$input_boundingbox_buffer))%>%
                        add_osm_feature(key = "amenity", value = "bar")  %>%
                        osmdata_sf(.) %>% 
                        .$osm_points  %>% 
                        select(name, osm_id)
-                     
+                     cat(file=stderr(), paste0("binding bars and pubs \n"))
                      pubs_bars <- pubs %>% rbind(bars)
+                     cat(file=stderr(), paste0("DONEbinding bars and pubs \n"))
                      pubs_bars$x <- st_x(pubs_bars)
                      pubs_bars$y <- st_y(pubs_bars)
                      
@@ -152,20 +159,29 @@ server <- function(input, output) {
                      }
                      
                      
+                     
+                     cat(file=stderr(), paste0("crs pubs_bars= ",st_crs(pubs_bars) , "\n"))
+                     cat(file=stderr(), paste0("crs mespoints= ",st_crs(mespoints) , "\n"))
+                     cat(file=stderr(), paste0("binding pubs_barts and mespoints to create points\n"))
+                     
                      points <- pubs_bars %>% 
                        # filter(!is.na(name))%>%
                        rbind(mespoints %>% filter(name == "start"))
-                     
+                     cat(file=stderr(), paste0("done binding pubs_barts and mespoints to create points\n"))
+                     cat(file=stderr(), paste0("binding end to points to create allpoints \n"))
                      end <- mespoints %>% filter(name == "end")
                      
                      allpoints <- rbind(points, end)
+                     cat(file=stderr(), paste0("done binding end to points to create allpoints \n"))
                      
+                     cat(file=stderr(), paste0("binding pubs_bars to mespoints again to create distance matrix input   \n"))                     
                      distance_matrix_input  <-  pubs_bars %>% 
                        #filter(!is.na(name))%>%
                        rbind(mespoints) %>%
                        st_set_geometry(NULL)
-                     
-                     incProgress(amount = 4/15, message= "Contacting OpenRouteService for duration matrix")        
+                     cat(file=stderr(), paste0("DONEbinding pubs_bars to mespoints again to create distance matrix input   \n"))                     
+                                          
+                     incProgress(amount = 4/15, message= "Contacting OpenRouteService API for duration matrix")        
                      z <- distance_matrix_input %>% 
                        select(x,y) %>%
                        openrouteservice::ors_matrix(., 
@@ -183,7 +199,7 @@ server <- function(input, output) {
                        gather(key= destination, value  = duration, -origin)
                      
                      
-                     incProgress(amount = 5/15, message= "Working: finding the shortest path")        
+                     incProgress(amount = 5/15, message= "Working: finding the shortest pub crawl")        
                      #initialiser les trajets
                      open <- vector("list", 100000)
                      closed <- vector("list", 100000)
@@ -314,13 +330,17 @@ server <- function(input, output) {
                            TRUE ~ "nobeer"))) %>%
                        arrange(!is.na(rank), rank) # NA first so that the markers are hidden by more important
                      
+                     
+                     cat(file=stderr(), paste0("crs markers", st_crs(markers)   ," \n"))
+                     cat(file=stderr(), paste0("crs end", st_crs(end)   ," \n"))
+                     cat(file=stderr(), paste0("rbind markers to end \n"))
                      best_path_stops <-  markers %>%
                        filter(!is.na(rank))%>%
                        arrange(rank) %>%
                        select(osm_id,x,y) %>%
                        rbind(end %>% select(osm_id,x,y))  %>%
                        st_set_geometry(NULL)
-                     
+                     cat(file=stderr(), paste0("Done rbind markers to end \n"))
                      
                      itinerary <- ors_directions(best_path_stops %>% select(x,y),
                                                  profile= my_profile,
@@ -385,15 +405,13 @@ server <- function(input, output) {
   output$mapplot <- renderLeaflet({
     req(my_results1)
     if (my_results1()$cancelled==0){
-      z <- mapview(my_results1()$itinerary, map.types = basemaps, 
+
+      z <- mapview(my_results1()$itinerary %>% select(geometry), # only select geometry column otherwise I get  "list columns are only allowed with raw vector contents" error
+                   map.types = basemaps,
                    legend= FALSE,  color = c("#ED79F9"))
       z@map %>%
           addAwesomeMarkers(data = my_results1()$markers, icon = ~IconSet[type], popup =~ name)
     } else {
-      # leaflet(my_results1()$markers) %>%
-      #   addProviderTiles(providers$CartoDB.DarkMatter) %>%
-      #   addAwesomeMarkers(icon = ~IconSet[type], popup =~ name) 
-      
       leaflet(my_results1()$markers)  %>%
         addProviderTiles(providers$Esri.WorldTopoMap) %>%
         addAwesomeMarkers(icon = ~IconSet[type], popup =~ name) %>%
@@ -402,7 +420,6 @@ server <- function(input, output) {
       
     }
   })
-  
   
 }
 shinyApp(ui, server)

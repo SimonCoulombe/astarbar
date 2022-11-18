@@ -1,14 +1,18 @@
+# this code is older than the shiny, sometimes used for debugging.
+
 
 #remotes::install_github("GIScience/openrouteservice-r")
 set.seed(1234)
+library(opencage)
 library(openrouteservice)
-#ors_api_key(Sys.getenv("ors_key")) ## we pass the api_key using sys.getenv("ORS_API_KEY"_)
 library(osmdata)
-library(mapview)
-library(tidyverse)
 library(sf)
 library(leaflet)
-library(htmlwidgets)
+library(mapview)
+library(dplyr)
+library(tidyr)
+library(purrr)
+#library(htmlwidgets)
 library(htmltools)
 
 n_bars <- 3
@@ -278,4 +282,28 @@ leaflet(markers)  %>%
   addAwesomeMarkers(icon = ~IconSet[type], popup =~ name) %>%
   addGeoJSON(x, fill=FALSE, color = "red")%>%
   addControl(title, position = "topleft")
+
+
+basemaps <- c("CartoDB.DarkMatter","CartoDB.Positron",  "OpenStreetMap",      "Esri.WorldImagery" ,"OpenTopoMap")  
+IconSet <- awesomeIconList(
+  beer   = makeAwesomeIcon(icon= 'beer', markerColor = 'green', iconColor = 'white', library = "fa"),
+  nobeer = makeAwesomeIcon(icon= 'beer', markerColor = 'red', iconColor = 'white', library = "fa"),
+  start = makeAwesomeIcon(icon= 'flag-o ',  iconColor = 'white', library = "fa"),
+  end = makeAwesomeIcon(icon= 'bed',  iconColor = 'white', library = "fa")
+)
+
+
+
+itinerary <- ors_directions(best_path_stops %>% select(x,y),
+                            profile= "foot-walking",
+                            output = "sf",
+                            api_key = Sys.getenv("ORS_API_KEY"))
+z <- mapview(itinerary %>% select(geometry) , # only select geometry column otherwise I get  "list columns are only allowed with raw vector contents" error
+             map.types = basemaps, 
+             legend= FALSE,  color = c("#ED79F9"))
+z@map %>%
+  addAwesomeMarkers(data = markers, icon = ~IconSet[type], popup =~ name)
+
+
+
 
