@@ -139,9 +139,19 @@ server <- function(input, output) {
                        osmdata_sf(.) %>% 
                        .$osm_points  %>% 
                        select(name, osm_id)
+                     cat(file=stderr(), paste0("crs pubs= ",st_crs(pubs) , "\n"))
+                     cat(file=stderr(), paste0("crs bars= ",st_crs(bars) , "\n"))
                      cat(file=stderr(), paste0("binding bars and pubs \n"))
                      pubs_bars <- pubs %>% rbind(bars)
                      cat(file=stderr(), paste0("DONEbinding bars and pubs \n"))
+                     
+                     cat(file=stderr(), paste0("crs pubs_bars= ",st_crs(pubs_bars) , "\n"))
+                     cat(file=stderr(), paste0("crs mespoints= ",st_crs(mespoints) , "\n"))
+                     cat(file=stderr(), paste0("transforming pubs_bars so it has same crs as mespoints\n"))
+                     pubs_bars <- pubs_bars %>% st_transform(crs = st_crs(mespoints))
+                     cat(file=stderr(), paste0("DONE transforming pubs_bars so it has same crs as mespoints\n"))
+                     cat(file=stderr(), paste0("NEW crs pubs_bars= ",st_crs(pubs_bars) , "\n"))
+                     
                      pubs_bars$x <- st_x(pubs_bars)
                      pubs_bars$y <- st_y(pubs_bars)
                      
